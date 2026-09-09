@@ -1,0 +1,9 @@
+name,type,state,latitude,longitude,importance,status
+Tawang District Hospital,Hospital,Arunachal Pradesh,27.586,91.859,Critical,Operational
+Tawang Emergency Centre,Emergency Centre,Arunachal Pradesh,27.578,91.872,High,Operational
+Imphal Hospital,Hospital,Manipur,24.817,93.936,Critical,Operational
+Aizawl Civil Hospital,Hospital,Mizoram,23.727,92.717,Critical,Operational
+Gangtok District Hospital,Hospital,Sikkim,27.338,88.606,High,Operational
+Kohima Hospital,Hospital,Nagaland,25.675,94.108,High,Operational
+Shillong Civil Hospital,Hospital,Meghalaya,25.578,91.893,High,Operational
+Itanagar Hospital,Hospital,Arunachal Pradesh,27.103,93.695,High,Operational

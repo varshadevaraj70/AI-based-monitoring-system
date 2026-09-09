@@ -1,0 +1,11 @@
+village,state,latitude,longitude,population,road_connectivity,nearest_hospital,importance
+Tawang Village,Arunachal Pradesh,27.586,91.859,11000,High,Tawang District Hospital,Critical
+Dirang,Arunachal Pradesh,27.329,92.240,6500,Medium,Dirang Health Centre,High
+Bomdila,Arunachal Pradesh,27.264,92.425,8500,High,Bomdila Hospital,High
+Sela Area,Arunachal Pradesh,27.505,92.100,1200,Low,Tawang District Hospital,Critical
+Imphal Village,Manipur,24.817,93.936,15000,High,Imphal Hospital,Critical
+Aizawl Village,Mizoram,23.727,92.717,18000,High,Aizawl Civil Hospital,Critical
+Gangtok Village,Sikkim,27.338,88.606,14000,High,Gangtok District Hospital,High
+Kohima Village,Nagaland,25.675,94.108,12500,High,Kohima Hospital,High
+Shillong Village,Meghalaya,25.578,91.893,16000,Medium,Shillong Civil Hospital,High
+Itanagar Village,Arunachal Pradesh,27.103,93.695,19000,High,Itanagar Hospital,Critical
