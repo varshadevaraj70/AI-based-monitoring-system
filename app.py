@@ -31,7 +31,7 @@ VILLAGE_DATA_PATH = BASE_DIR / "data" / "village_risk.csv"
 
 
 st.set_page_config(
-    page_title="NER Landslide Early Warning System",
+    page_title="NER AI Landslide Early Warning System",
     page_icon="⛰️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -792,6 +792,27 @@ if page == "Dashboard":
             int(max(0, min(100, round(probability)))),
             text=f"AI Risk Probability: {probability:.2f}%",
         )
+        st.markdown("### 🧠 Prediction Summary")
+
+        prediction_source = (
+            "Trained ML model (`landslide_model.pkl`)"
+            if model is not None
+            else "Fallback risk engine"
+        )
+
+        p1, p2, p3 = st.columns(3)
+        with p1:
+            st.metric("Prediction Source", "ML Model" if model is not None else "Fallback")
+        with p2:
+            st.metric("Risk Category", level)
+        with p3:
+            st.metric("Model Input Factors", len(FEATURE_COLUMNS))
+
+        st.caption(
+            f"Prediction generated using: {prediction_source}. "
+            "This is a prototype decision-support output."
+        )
+
 
         if level == "CRITICAL":
             st.error("🚨 CRITICAL RISK")
@@ -807,6 +828,77 @@ if page == "Dashboard":
         st.info(
             f"**Recommended action:** "
             f"{get_recommended_action(level)}"
+        )
+        # --------------------------------------------------------
+        # AI RISK EXPLANATION
+        # --------------------------------------------------------
+
+        st.markdown("---")
+        st.subheader("🔎 AI Risk Explanation")
+        st.caption(
+            "The following indicators show which environmental factors "
+            "are contributing most strongly to the current prototype assessment."
+        )
+
+        def indicator_level(value, low, moderate, high):
+            value = safe_float(value)
+            if value >= high:
+                return "VERY HIGH"
+            if value >= moderate:
+                return "HIGH"
+            if value >= low:
+                return "MODERATE"
+            return "LOW"
+
+        driver_data = pd.DataFrame(
+            {
+                "Risk Driver": [
+                    "🌧️ Rainfall",
+                    "💧 Soil Moisture",
+                    "📐 Slope",
+                    "🌍 Ground Movement",
+                    "⛰️ Elevation",
+                ],
+                "Value": [
+                    f"{rainfall} mm",
+                    f"{soil_moisture}%",
+                    f"{slope}°",
+                    f"{ground_movement} mm",
+                    f"{elevation} m",
+                ],
+                "Indicator": [
+                    indicator_level(rainfall, 75, 150, 225),
+                    indicator_level(soil_moisture, 40, 65, 80),
+                    indicator_level(slope, 20, 30, 40),
+                    indicator_level(ground_movement, 3, 8, 15),
+                    indicator_level(elevation, 1000, 2000, 3000),
+                ],
+            }
+        )
+
+        st.dataframe(
+            driver_data,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        d1, d2, d3, d4, d5 = st.columns(5)
+        driver_columns = [d1, d2, d3, d4, d5]
+
+        for column, (_, driver) in zip(driver_columns, driver_data.iterrows()):
+            with column:
+                st.metric(
+                    driver["Risk Driver"],
+                    driver["Indicator"],
+                    driver["Value"],
+                )
+
+        st.info(
+            "💡 **How to interpret this:** Higher rainfall, soil moisture, "
+            "slope and ground movement can increase landslide susceptibility. "
+            "Elevation is displayed as terrain context. The final AI probability "
+            "comes from the loaded model when available; otherwise the fallback "
+            "risk engine is used."
         )
 
     st.markdown("---")
@@ -1172,6 +1264,31 @@ elif page == "Risk Map":
 
     folium.LayerControl().add_to(m)
 
+    st.markdown("### 📊 Map Summary")
+
+    if not village_results_df.empty:
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        with mc1:
+            st.metric(
+                "Critical Communities",
+                int((village_results_df["Alert"] == "CRITICAL").sum()),
+            )
+        with mc2:
+            st.metric(
+                "High Risk Communities",
+                int((village_results_df["Alert"] == "HIGH").sum()),
+            )
+        with mc3:
+            st.metric(
+                "Moderate Communities",
+                int((village_results_df["Alert"] == "MODERATE").sum()),
+            )
+        with mc4:
+            st.metric(
+                "Low Risk Communities",
+                int((village_results_df["Alert"] == "LOW").sum()),
+            )
+
     st_folium(
         m,
         use_container_width=True,
@@ -1196,6 +1313,18 @@ elif page == "Alerts":
         """
         Alerts are generated from AI risk probability and
         community response-priority scoring.
+        """
+    )
+
+    st.markdown(
+        """
+        ### 🔄 Early Warning Workflow
+
+        **Monitor → Predict → Prioritize → Alert → Respond**
+
+        AI risk probability is combined with community vulnerability,
+        road connectivity and community importance to help prioritize
+        locations for response.
         """
     )
 
