@@ -1201,6 +1201,63 @@ def set_background(image_path: Path):
          [data-testid="stMain"], .main, .block-container {{
              overflow-x:hidden !important;
          }}
+
+        /* FINAL SCROLL FIX: use the browser's normal page scrolling for the
+           main display. Do NOT turn the Streamlit app shell into a second
+           nested scroll container. The sidebar alone gets an independent
+           internal scrollbar. */
+        html, body {{
+            width:100% !important;
+            min-height:100% !important;
+            height:auto !important;
+            overflow-x:hidden !important;
+            overflow-y:auto !important;
+        }}
+        .stApp {{
+            width:100% !important;
+            min-height:100vh !important;
+            height:auto !important;
+            overflow:visible !important;
+        }}
+        [data-testid="stAppViewContainer"] {{
+            width:100% !important;
+            min-height:100vh !important;
+            height:auto !important;
+            max-height:none !important;
+            overflow:visible !important;
+        }}
+        [data-testid="stAppViewContainer"] > .main,
+        [data-testid="stMain"] {{
+            width:100% !important;
+            min-height:100vh !important;
+            height:auto !important;
+            max-height:none !important;
+            overflow:visible !important;
+            overscroll-behavior:auto !important;
+        }}
+        [data-testid="stAppViewContainer"] > .main > div,
+        [data-testid="stMainBlockContainer"],
+        [data-testid="stAppViewContainer"] .block-container {{
+            height:auto !important;
+            min-height:100vh !important;
+            max-height:none !important;
+            overflow:visible !important;
+        }}
+
+        /* Sidebar is the only independent scroll region. */
+        section[data-testid="stSidebar"] {{
+            height:100vh !important;
+            max-height:100vh !important;
+            overflow:hidden !important;
+        }}
+        section[data-testid="stSidebar"] > div:first-child {{
+            height:100vh !important;
+            max-height:100vh !important;
+            overflow-y:auto !important;
+            overflow-x:hidden !important;
+            overscroll-behavior:contain !important;
+            -webkit-overflow-scrolling:touch !important;
+        }}
 </style>
         """,
         unsafe_allow_html=True,
@@ -1247,7 +1304,43 @@ def init_incident_db():
         for column, statement in migrations.items():
             if column not in existing_columns:
                 conn.execute(statement)
+
+        # Persistent audit trail for successful private operational-module access.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS private_access_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                accessed_at TEXT NOT NULL,
+                role TEXT NOT NULL,
+                module TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
+
+
+def record_private_access(role, module):
+    """Store a successful private-module access event for the Settings audit log."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO private_access_logs (accessed_at, role, module) VALUES (?, ?, ?)",
+            (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), role, module),
+        )
+        conn.commit()
+
+
+def load_private_access_logs(limit=100):
+    """Return the most recent private access events."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            return pd.read_sql_query(
+                "SELECT accessed_at AS 'Date & Time', role AS 'Role', module AS 'Private Section' "
+                "FROM private_access_logs ORDER BY id DESC LIMIT ?",
+                conn,
+                params=(int(limit),),
+            )
+    except Exception:
+        return pd.DataFrame(columns=["Date & Time", "Role", "Private Section"])
 
 
 def save_incident(
@@ -1283,7 +1376,7 @@ def save_incident(
                 camera_source,
                 notification_status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -1870,23 +1963,29 @@ st.markdown(
     section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
         min-height: 100%;
     }
-    /* Main display gets its own independent scrollbar. */
+    /* Main display uses the browser's normal page scrollbar. Do not
+       create a nested fixed-height scroll container here, because that
+       can trap the mouse wheel and prevent the main page from scrolling. */
     [data-testid="stAppViewContainer"] {
-        height: 100vh !important;
-        max-height: 100vh !important;
-        overflow: hidden !important;
-    }
-    [data-testid="stAppViewContainer"] > .main {
-        height: 100vh !important;
-        max-height: 100vh !important;
-        overflow-y: auto !important;
-        overflow-x: hidden !important;
-        overscroll-behavior: contain;
-        -webkit-overflow-scrolling: touch;
-    }
-    [data-testid="stAppViewContainer"] > .main .block-container {
-        min-height: 0 !important;
         height: auto !important;
+        min-height: 100vh !important;
+        max-height: none !important;
+        overflow: visible !important;
+    }
+    [data-testid="stAppViewContainer"] > .main,
+    [data-testid="stMain"] {
+        height: auto !important;
+        min-height: 100vh !important;
+        max-height: none !important;
+        overflow: visible !important;
+        overscroll-behavior: auto !important;
+    }
+    [data-testid="stAppViewContainer"] > .main .block-container,
+    [data-testid="stMainBlockContainer"] {
+        min-height: 100vh !important;
+        height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
         padding-bottom: 5rem !important;
     }
     .sidebar-brand {
@@ -1912,56 +2011,107 @@ st.markdown(
     section[data-testid="stSidebar"] .stRadio label:hover { border-color:rgba(95,199,255,.35); background:rgba(50,120,170,.14); transform:translateX(2px); }
 
     /* ==========================================================
-       RESTORE ORIGINAL STREAMLIT PAGE SCROLL
-       Main content and sidebar return to the normal Streamlit/browser
-       scrolling behavior used before the independent-scroll change.
+       FLOATING SIDEBAR ACCESS
+       Keep the native Streamlit sidebar opener available from
+       anywhere on the main page, even after the sidebar is
+       collapsed and the user has scrolled far down.
        ========================================================== */
-    html, body, .stApp {
-        height: auto !important;
-        min-height: 100% !important;
-        overflow-x: hidden !important;
-        overflow-y: auto !important;
-    }
-
-    [data-testid="stAppViewContainer"] {
-        height: auto !important;
+    /*
+       FULL LEFT-EDGE SIDEBAR HOTSPOT
+       The native Streamlit opener is expanded into a transparent vertical
+       click zone. This means the user can click anywhere along the left edge
+       of the main page to open the sidebar, even after scrolling. The native
+       Streamlit icon remains centered inside the zone as a visual cue.
+    */
+    [data-testid="stExpandSidebarButton"] {
+        position: fixed !important;
+        left: 0 !important;
+        top: 0 !important;
+        transform: none !important;
+        z-index: 2147483000 !important;
+        width: 64px !important;
+        height: 100vh !important;
+        min-width: 64px !important;
         min-height: 100vh !important;
-        max-height: none !important;
-        overflow: visible !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        pointer-events: auto !important;
     }
-
-    [data-testid="stAppViewContainer"] > .main {
-        height: auto !important;
+    [data-testid="stExpandSidebarButton"] button {
+        width: 64px !important;
+        height: 100vh !important;
+        min-width: 64px !important;
         min-height: 100vh !important;
-        max-height: none !important;
-        overflow: visible !important;
-        overscroll-behavior: auto !important;
+        padding: 0 !important;
+        border-radius: 0 14px 14px 0 !important;
+        border: 0 !important;
+        border-right: 1px solid rgba(103, 211, 255, .16) !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        color: #eaf8ff !important;
+        cursor: pointer !important;
+        opacity: 1 !important;
+        transition: background .18s ease, border-color .18s ease !important;
+    }
+    [data-testid="stExpandSidebarButton"] button:hover {
+        background: linear-gradient(90deg, rgba(44, 197, 255, .08), rgba(44, 197, 255, .02), transparent) !important;
+        border-right-color: rgba(103, 211, 255, .34) !important;
+    }
+    [data-testid="stExpandSidebarButton"] svg {
+        width: 24px !important;
+        height: 24px !important;
+        filter: drop-shadow(0 2px 8px rgba(44, 197, 255, .35));
     }
 
-    [data-testid="stAppViewContainer"] > .main > div,
-    [data-testid="stMain"],
-    [data-testid="stMainBlockContainer"],
-    [data-testid="stAppViewContainer"] > .main .block-container {
-        height: auto !important;
-        min-height: 0 !important;
-        max-height: none !important;
-        overflow: visible !important;
+    /* Keep the native collapse control easy to find when the sidebar is open. */
+    [data-testid="stSidebarCollapseButton"] {
+        visibility: visible !important;
+    }
+    [data-testid="stSidebarCollapseButton"] button {
+        border-radius: 10px !important;
     }
 
+    @media (max-width: 700px) {
+        [data-testid="stExpandSidebarButton"],
+        [data-testid="stExpandSidebarButton"] button {
+            width: 52px !important;
+            min-width: 52px !important;
+        }
+    }
+
+    /* ==========================================================
+       NATIVE STREAMLIT SIDEBAR + INDEPENDENT SIDEBAR SCROLL
+       Do NOT force the sidebar to fixed positioning. Streamlit's
+       native sidebar layout automatically shifts the main content
+       when the sidebar opens and restores it when the sidebar closes.
+       ========================================================== */
     section[data-testid="stSidebar"] {
-        height: auto !important;
-        max-height: none !important;
-        overflow: visible !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        overflow: hidden !important;
     }
-
     section[data-testid="stSidebar"] > div:first-child {
+        height: 100vh !important;
+        max-height: 100vh !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        overscroll-behavior: contain !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: thin !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+        min-height: 100% !important;
         height: auto !important;
-        max-height: none !important;
         overflow: visible !important;
     }
 
-    section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
-        min-height: 0 !important;
+    /* Let Streamlit's native layout control the main-content offset. */
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"],
+    [data-testid="stAppViewContainer"] > .main {
+        overflow: visible !important;
+        max-height: none !important;
     }
 
     /* Keep the decorative layers fixed without creating a second scroll area. */
@@ -2366,40 +2516,7 @@ if st.sidebar.button("🗺️ Skip / View Public Map", key="sidebar_demo_public"
     st.rerun()
 
 # Alerts and Sensors are private operational areas. They are not exposed in public navigation.
-if st.session_state.private_login_target:
-    _login_role = st.session_state.private_login_target
-    _login_module = "Alerts" if _login_role == "NDMA Official" else "Sensors"
-    st.sidebar.markdown(
-        f"""<div class="sidebar-demo-card" style="margin-top:10px;">
-            <div class="sidebar-demo-kicker">🔒 PRIVATE ACCESS</div>
-            <div class="sidebar-demo-title">{_login_role}</div>
-            <div class="sidebar-demo-copy">Enter the evaluation password to unlock {_login_module}.</div>
-        </div>""",
-        unsafe_allow_html=True,
-    )
-    _password_key = f"private_access_password_{_login_role.lower().replace(' ', '_')}_{st.session_state.private_login_nonce}"
-    _private_password = st.sidebar.text_input(
-        "Private access password", type="password", key=_password_key,
-        placeholder="Enter password", label_visibility="collapsed",
-    )
-    _login_col1, _login_col2 = st.sidebar.columns(2)
-    with _login_col1:
-        if st.button("🔓 Unlock", key="private_unlock_btn", use_container_width=True):
-            _password_hash = hashlib.sha256(_private_password.encode("utf-8")).hexdigest()
-            _expected_hash = hashlib.sha256("123456".encode("utf-8")).hexdigest()
-            if _password_hash == _expected_hash:
-                st.session_state.private_access = _login_role
-                st.session_state.demo_role = _login_role
-                st.session_state.private_login_target = None
-                st.session_state._pending_navigation = _login_module
-                st.rerun()
-            else:
-                st.sidebar.error("Incorrect password.")
-    with _login_col2:
-        if st.button("✕ Cancel", key="private_cancel_btn", use_container_width=True):
-            st.session_state.private_login_target = None
-            st.session_state.private_login_nonce += 1
-            st.rerun()
+# The password form is intentionally rendered on the main display below.
 
 _PUBLIC_NAV_OPTIONS = [name for name in MODULE_INFO if name not in {"Alerts", "Sensors"}]
 if st.session_state.private_access == "NDMA Official":
@@ -2431,6 +2548,66 @@ page = st.sidebar.radio(
 )
 _selected_info = MODULE_INFO[page]
 
+# Private-module routing and automatic lock on exit.
+_private_module_for_role = {
+    "NDMA Official": "Alerts",
+    "Field Geologist": "Sensors",
+}
+if st.session_state.private_access:
+    _active_private_module = _private_module_for_role.get(st.session_state.private_access)
+    if page != _active_private_module:
+        st.session_state.private_access = None
+        st.session_state.demo_role = "Public Viewer"
+        st.session_state.private_login_target = None
+        st.session_state.private_login_nonce += 1
+
+# Main-display login: the password is entered in the central page, not in the sidebar.
+if st.session_state.private_login_target:
+    _login_role = st.session_state.private_login_target
+    _login_module = _private_module_for_role.get(_login_role, "")
+    st.markdown(
+        f"""
+        <div class="private-login-shell">
+            <div class="private-login-badge">🔒 PRIVATE OPERATIONAL ACCESS</div>
+            <div class="private-login-title">{_login_role}</div>
+            <div class="private-login-subtitle">
+                Enter the authorized password to open the {_login_module} section.
+                This section is restricted to authorized evaluation/operational users.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    _password_key = f"private_access_password_{_login_role.lower().replace(' ', '_')}_{st.session_state.private_login_nonce}"
+    _private_password = st.text_input(
+        "Private access password",
+        type="password",
+        key=_password_key,
+        placeholder="Enter password",
+        help="Authorized evaluation password required.",
+    )
+    _login_col1, _login_col2, _login_col3 = st.columns([1.15, 1.0, 2.0])
+    with _login_col1:
+        if st.button("🔓 Unlock Private Section", key="private_unlock_main_btn", use_container_width=True, type="primary"):
+            _password_hash = hashlib.sha256(_private_password.encode("utf-8")).hexdigest()
+            _expected_hash = hashlib.sha256("123456".encode("utf-8")).hexdigest()
+            if _password_hash == _expected_hash:
+                st.session_state.private_access = _login_role
+                st.session_state.demo_role = _login_role
+                st.session_state.private_login_target = None
+                record_private_access(_login_role, _login_module)
+                st.session_state._pending_navigation = _login_module
+                st.rerun()
+            else:
+                st.error("Incorrect password. Please try again.")
+    with _login_col2:
+        if st.button("✕ Cancel", key="private_cancel_main_btn", use_container_width=True):
+            st.session_state.private_login_target = None
+            st.session_state.private_login_nonce += 1
+            st.rerun()
+    st.info("Private access is automatically closed when you leave this private section. You will need to enter the password again next time.")
+    st.stop()
+
 # Reset the main page scroll position whenever the user switches modules.
 # Streamlit reruns the script but normally preserves the browser's previous
 # scroll position, so a small component asks the parent Streamlit page to
@@ -2439,40 +2616,97 @@ _previous_page = st.session_state.get("_last_rendered_page")
 _page_changed = _previous_page is not None and _previous_page != page
 st.session_state._last_rendered_page = page
 if _page_changed:
-    components.html(
-        """
-        <script>
-        (function() {
-            function resetParentScroll() {
-                try {
-                    var parentDoc = window.parent.document;
-                    var candidates = [
-                        parentDoc.querySelector('[data-testid=\"stAppViewContainer\"] > .main'),
-                        parentDoc.querySelector('[data-testid=\"stAppViewContainer\"]'),
-                        parentDoc.scrollingElement,
-                        parentDoc.documentElement,
-                        parentDoc.body
-                    ];
-                    candidates.forEach(function(el) {
-                        if (el) {
-                            el.scrollTop = 0;
-                            el.scrollTo && el.scrollTo({top: 0, left: 0, behavior: 'instant'});
+    # Use st.html instead of components.html here. st.html is rendered directly
+    # in the Streamlit app DOM, so its JavaScript can access the native sidebar
+    # collapse button. components.html runs inside a sandboxed iframe, which can
+    # prevent the automatic-close click from reaching Streamlit.
+    _sidebar_close_js = """
+    <script>
+    (() => {
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        function resetMainScroll() {
+            try {
+                const candidates = [
+                    document.querySelector('[data-testid="stAppViewContainer"] > .main'),
+                    document.querySelector('[data-testid="stAppViewContainer"]'),
+                    document.querySelector('[data-testid="stMain"]'),
+                    document.scrollingElement,
+                    document.documentElement,
+                    document.body
+                ];
+                candidates.forEach((el) => {
+                    if (el) {
+                        el.scrollTop = 0;
+                        if (typeof el.scrollTo === 'function') {
+                            el.scrollTo({top: 0, left: 0, behavior: 'instant'});
                         }
-                    });
-                    window.parent.scrollTo(0, 0);
-                } catch (e) {
-                    try { window.scrollTo(0, 0); } catch (_) {}
-                }
+                    }
+                });
+                window.scrollTo(0, 0);
+            } catch (e) {}
+        }
+
+        function findCollapseButton() {
+            const selectors = [
+                '[data-testid="stSidebarCollapseButton"] button',
+                '[data-testid="stSidebarCollapseButton"]',
+                'section[data-testid="stSidebar"] button[kind="headerNoPadding"]',
+                'button[aria-label*="Collapse sidebar" i]',
+                'button[aria-label*="Close sidebar" i]',
+                'button[title*="Collapse sidebar" i]',
+                'button[title*="Close sidebar" i]'
+            ];
+
+            for (const selector of selectors) {
+                const button = document.querySelector(selector);
+                if (button && typeof button.click === 'function') return button;
             }
-            setTimeout(resetParentScroll, 20);
-            setTimeout(resetParentScroll, 120);
-            setTimeout(resetParentScroll, 300);
-        })();
-        </script>
-        """,
-        height=1,
-        scrolling=False,
-    )
+
+            const buttons = Array.from(document.querySelectorAll('button'));
+            return buttons.find((button) => {
+                const text = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''}`.toLowerCase();
+                return text.includes('collapse sidebar') || text.includes('close sidebar');
+            }) || null;
+        }
+
+        function closeSidebar() {
+            const sidebar = document.querySelector('section[data-testid="stSidebar"]');
+            if (!sidebar) return false;
+
+            if (sidebar.getAttribute('aria-expanded') === 'false') return true;
+
+            const button = findCollapseButton();
+            if (!button) return false;
+
+            button.click();
+            return true;
+        }
+
+        async function run() {
+            resetMainScroll();
+
+            // Wait for Streamlit's rerender to finish, then click the real native
+            // collapse button. Several retries handle slower browser/network runs.
+            const delays = [0, 50, 150, 300, 500, 800, 1200, 1800, 2500];
+            for (const delay of delays) {
+                if (delay) await sleep(delay);
+                resetMainScroll();
+                if (closeSidebar()) return;
+            }
+        }
+
+        run();
+    })();
+    </script>
+    """
+
+    if hasattr(st, "html"):
+        st.html(_sidebar_close_js, width="content", unsafe_allow_javascript=True)
+    else:
+        # Compatibility fallback for older Streamlit versions.
+        components.html(_sidebar_close_js, height=1, scrolling=False)
+
 
 # Dynamic sidebar theme — the sidebar follows the active module colour palette.
 SIDEBAR_THEMES = {
@@ -2631,6 +2865,41 @@ st.sidebar.markdown(
     }}
     section[data-testid="stSidebar"] .sidebar-demo-copy {{
         color:#9eb5c9; font-size:.65rem; line-height:1.35; margin-top:3px;
+    }}
+
+    .private-login-shell {{
+        max-width: 820px;
+        margin: 3rem auto 1.2rem;
+        padding: 34px 38px;
+        border: 1px solid rgba(95,199,255,.30);
+        border-radius: 22px;
+        background: linear-gradient(145deg, rgba(8,31,52,.96), rgba(10,18,34,.94));
+        box-shadow: 0 24px 70px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.05);
+        text-align: center;
+    }}
+    .private-login-badge {{
+        display: inline-block;
+        padding: 7px 12px;
+        border-radius: 999px;
+        background: rgba(239,68,68,.13);
+        border: 1px solid rgba(239,68,68,.35);
+        color: #ff9b9b;
+        font-size: .72rem;
+        font-weight: 850;
+        letter-spacing: .10em;
+    }}
+    .private-login-title {{
+        margin-top: 15px;
+        font-size: 2rem;
+        font-weight: 850;
+        color: #f4f8fc;
+    }}
+    .private-login-subtitle {{
+        max-width: 650px;
+        margin: 9px auto 0;
+        color: #a9bdd0;
+        line-height: 1.6;
+        font-size: .95rem;
     }}
 
     section[data-testid="stSidebar"] .status-card {{
@@ -5277,6 +5546,25 @@ elif page == "Settings":
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+    st.markdown('<div class="settings-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="settings-section">🔐 Private Section Access Record</div>', unsafe_allow_html=True)
+    st.caption("Successful NDMA Official and Field Geologist access events are stored locally with their date and time.")
+    _access_log_df = load_private_access_logs(limit=100)
+    if _access_log_df.empty:
+        st.info("No successful private-section access has been recorded yet.")
+    else:
+        st.dataframe(
+            _access_log_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Date & Time": st.column_config.TextColumn("Date & Time", width="medium"),
+                "Role": st.column_config.TextColumn("Role", width="medium"),
+                "Private Section": st.column_config.TextColumn("Private Section", width="medium"),
+            },
+        )
+        st.caption(f"Showing the {len(_access_log_df)} most recent successful private-access events.")
 
     st.markdown('<div class="settings-divider"></div>', unsafe_allow_html=True)
     if st.button(t("Reset settings to default"), use_container_width=False):
