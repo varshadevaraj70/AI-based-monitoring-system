@@ -43,48 +43,147 @@ st.set_page_config(
 # ============================================================
 
 def set_background(image_path: Path):
-    if not image_path.exists():
-        return
+    """Apply the landslide image as a top hero background and dark glass UI."""
+    encoded = ""
+    if image_path.exists():
+        try:
+            encoded = base64.b64encode(image_path.read_bytes()).decode()
+        except Exception:
+            encoded = ""
 
-    try:
-        encoded = base64.b64encode(image_path.read_bytes()).decode()
-        st.markdown(
-            f"""
-            <style>
-            .stApp {{
-                background-image:
-                    linear-gradient(
-                        rgba(0,0,0,0.72),
-                        rgba(0,0,0,0.72)
-                    ),
-                    url("data:image/jpeg;base64,{encoded}");
-                background-size: cover;
-                background-position: center;
-                background-attachment: fixed;
-            }}
+    bg = (
+        f'url("data:image/jpeg;base64,{encoded}")'
+        if encoded
+        else "none"
+    )
 
-            .block-container {{
-                padding-top: 1.5rem;
-                padding-bottom: 3rem;
-            }}
+    st.markdown(
+        f"""
+        <style>
+        :root {{
+            --bg: #07111d;
+            --panel: rgba(7, 22, 39, 0.86);
+            --panel2: rgba(11, 31, 52, 0.72);
+            --border: rgba(120, 180, 230, 0.22);
+            --text: #f5f7fb;
+            --muted: #9fb1c4;
+        }}
 
-            [data-testid="stMetric"] {{
-                background: rgba(255,255,255,0.07);
-                padding: 12px;
-                border-radius: 12px;
-            }}
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-    except Exception:
-        pass
+        .stApp {{
+            background:
+                linear-gradient(180deg, rgba(3,10,18,.88) 0%, rgba(3,12,22,.96) 42%, #06101c 100%),
+                {bg};
+            background-size: 100% 100%, 100% 430px;
+            background-position: center, top center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            color: var(--text);
+        }}
+
+        [data-testid="stHeader"] {{ background: transparent; }}
+        .block-container {{
+            max-width: 1500px;
+            padding-top: 1.2rem;
+            padding-bottom: 3rem;
+        }}
+
+        section[data-testid="stSidebar"] {{
+            background: linear-gradient(180deg, rgba(3,14,27,.98), rgba(2,10,20,.98));
+            border-right: 1px solid rgba(120,180,230,.16);
+        }}
+
+        section[data-testid="stSidebar"] * {{ color: #eaf2fa; }}
+        section[data-testid="stSidebar"] .stRadio label {{
+            padding: 8px 10px;
+            border-radius: 10px;
+        }}
+
+        h1, h2, h3 {{ letter-spacing: -.02em; }}
+
+        .hero {{
+            min-height: 220px;
+            padding: 28px 32px 26px 32px;
+            border: 1px solid rgba(142, 202, 255, .22);
+            border-radius: 20px;
+            background:
+                linear-gradient(90deg, rgba(3,13,24,.96) 0%, rgba(3,17,30,.72) 44%, rgba(3,17,30,.24) 100%),
+                {bg};
+            background-size: cover;
+            background-position: center;
+            box-shadow: 0 20px 55px rgba(0,0,0,.32);
+            margin-bottom: 16px;
+        }}
+
+        .hero h1 {{ font-size: clamp(2rem, 4vw, 3.3rem); margin: 0 0 8px 0; font-weight: 800; }}
+        .hero p {{ color: #d9e5f0; font-size: 1.05rem; max-width: 820px; margin: 0; }}
+
+        .glass {{
+            background: linear-gradient(135deg, rgba(11,31,52,.86), rgba(5,18,32,.74));
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            box-shadow: 0 12px 35px rgba(0,0,0,.22);
+            padding: 16px;
+        }}
+
+        .risk-card {{
+            border-radius: 15px;
+            padding: 15px 17px;
+            min-height: 90px;
+            border: 1px solid rgba(255,255,255,.12);
+            background: rgba(8,24,41,.86);
+            box-shadow: 0 10px 28px rgba(0,0,0,.18);
+        }}
+        .risk-card .label {{ color: #b9c9d9; font-size: .88rem; }}
+        .risk-card .value {{ font-size: 1.9rem; font-weight: 750; margin-top: 4px; }}
+        .red {{ border-color: rgba(255,55,80,.55); }}
+        .orange {{ border-color: rgba(255,153,40,.50); }}
+        .yellow {{ border-color: rgba(255,207,54,.48); }}
+        .green {{ border-color: rgba(43,211,126,.48); }}
+        .cyan {{ border-color: rgba(55,199,255,.48); }}
+        .purple {{ border-color: rgba(170,112,255,.48); }}
+
+        .section-title {{ font-size: 1.22rem; font-weight: 750; margin: 8px 0 12px; }}
+        .small-muted {{ color: var(--muted); font-size: .83rem; }}
+
+        .ai-panel {{
+            border: 1px solid rgba(69,170,255,.40);
+            border-radius: 18px;
+            background: radial-gradient(circle at 25% 20%, rgba(20,91,145,.25), transparent 36%), rgba(5,19,34,.91);
+            padding: 20px;
+            min-height: 285px;
+        }}
+        .ai-number {{ font-size: 3.4rem; font-weight: 850; line-height: 1; }}
+        .ai-risk {{ font-size: 1.2rem; font-weight: 800; margin-top: 5px; }}
+        .pill {{ display:inline-block; padding: 5px 10px; border-radius: 999px; background: rgba(38,213,125,.14); border:1px solid rgba(38,213,125,.45); color:#6ff0ae; font-size:.78rem; }}
+
+        .alert-item {{
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255,255,255,.08);
+        }}
+        .alert-item:last-child {{ border-bottom: 0; }}
+
+        [data-testid="stMetric"] {{
+            background: rgba(8,25,43,.72);
+            border: 1px solid rgba(120,180,230,.16);
+            border-radius: 14px;
+            padding: 12px 14px;
+        }}
+        [data-testid="stMetricValue"] {{ font-weight: 800; }}
+
+        div[data-testid="stButton"] > button {{
+            border-radius: 10px;
+            min-height: 44px;
+            font-weight: 650;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 set_background(IMAGE_PATH)
 
 
-# ============================================================
 # DATABASE
 # ============================================================
 
@@ -324,6 +423,41 @@ def get_recommended_action(level):
 
 
 # ============================================================
+# REAL-TIME PROTOTYPE SENSOR ENGINE
+# ============================================================
+
+def get_live_sensor_values():
+    if "live_sensors" not in st.session_state:
+        st.session_state.live_sensors = {
+            "rainfall_mm": 164.0,
+            "soil_moisture": 68.0,
+            "slope_deg": 28.0,
+            "ground_movement_mm": 6.4,
+            "elevation_m": 1320.0,
+        }
+    return st.session_state.live_sensors
+
+
+def refresh_live_sensor_values():
+    import random
+    values = get_live_sensor_values()
+    values["rainfall_mm"] = round(max(0, values["rainfall_mm"] + random.uniform(-8, 14)), 1)
+    values["soil_moisture"] = round(max(0, min(100, values["soil_moisture"] + random.uniform(-2, 2))), 1)
+    values["slope_deg"] = round(max(0, values["slope_deg"] + random.uniform(-0.4, 0.4)), 1)
+    values["ground_movement_mm"] = round(max(0, values["ground_movement_mm"] + random.uniform(-0.8, 1.2)), 1)
+    values["elevation_m"] = round(max(0, values["elevation_m"] + random.uniform(-2, 2)), 1)
+
+
+def get_live_risk():
+    values = get_live_sensor_values()
+    probability = get_ai_probability(pd.Series(values))
+    return probability, get_risk_level(probability), values
+
+
+live_probability, live_risk_level, live_values = get_live_risk()
+
+
+# ============================================================
 # GEOGRAPHIC HELPERS
 # ============================================================
 
@@ -553,363 +687,201 @@ st.sidebar.caption(
 
 if page == "Dashboard":
 
-    st.title("⛰️ NER Landslide Early Warning System")
-
+    # HERO
     st.markdown(
         """
-        ### AI-Based Risk Monitoring & Early Warning Platform
-
-        Monitor rainfall, soil moisture, slope, ground movement,
-        vulnerable communities, roads and critical infrastructure.
-        """
-    )
-
-    st.markdown(
-        """
-        <div style="
-            padding:18px;
-            border-radius:14px;
-            background:linear-gradient(
-                90deg,
-                rgba(127,29,29,0.92),
-                rgba(153,27,27,0.82)
-            );
-            color:white;
-            margin:10px 0 22px 0;
-        ">
-            <h3 style="margin:0;">🚨 AI-Powered Landslide Early Warning</h3>
-            <p style="margin:8px 0 0 0;">
-                Continuous monitoring of environmental indicators
-                and community vulnerability.
-            </p>
+        <div class="hero">
+            <h1>⛰️ NER Landslide Early Warning System</h1>
+            <p>AI-powered monitoring of rainfall, soil moisture, terrain, ground movement, communities, roads and critical infrastructure.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    critical_count = 0
-    high_count = 0
-    moderate_count = 0
+    # FILTER BAR
+    filter_box = st.container()
+    with filter_box:
+        f1, f2, f3 = st.columns([1.2, 1.2, .75])
+        states = ["All Regions"]
+        if not village_df.empty and "state" in village_df.columns:
+            states += sorted(village_df["state"].dropna().astype(str).unique().tolist())
 
-    if not village_results_df.empty:
-        critical_count = int(
-            (village_results_df["Alert"] == "CRITICAL").sum()
-        )
-        high_count = int(
-            (village_results_df["Alert"] == "HIGH").sum()
-        )
-        moderate_count = int(
-            (village_results_df["Alert"] == "MODERATE").sum()
+        with f1:
+            selected_state = st.selectbox("📍 Monitoring Region", states, key="dashboard_state")
+        with f2:
+            selected_risk = st.selectbox("🚦 Risk Filter", ["All Risks", "CRITICAL", "HIGH", "MODERATE", "LOW"], key="dashboard_risk")
+        with f3:
+            st.write("")
+            if st.button("🔄 Refresh Live Data", use_container_width=True, type="primary"):
+                refresh_live_sensor_values()
+                st.rerun()
+
+    # Filter village results
+    dashboard_df = village_results_df.copy()
+    if selected_state != "All Regions" and not dashboard_df.empty and "State" in dashboard_df.columns:
+        dashboard_df = dashboard_df[dashboard_df["State"] == selected_state]
+    if selected_risk != "All Risks" and not dashboard_df.empty and "Alert" in dashboard_df.columns:
+        dashboard_df = dashboard_df[dashboard_df["Alert"] == selected_risk]
+
+    def count_alert(level):
+        if dashboard_df.empty or "Alert" not in dashboard_df.columns:
+            return 0
+        return int((dashboard_df["Alert"] == level).sum())
+
+    # TOP RISK CARDS
+    critical_count = count_alert("CRITICAL")
+    high_count = count_alert("HIGH")
+    moderate_count = count_alert("MODERATE")
+    low_count = count_alert("LOW")
+    villages_count = len(dashboard_df) if not dashboard_df.empty else len(village_df)
+
+    cards = st.columns(6)
+    card_data = [
+        ("🚨", "Critical", critical_count, "red"),
+        ("⚠️", "High", high_count, "orange"),
+        ("🟡", "Moderate", moderate_count, "yellow"),
+        ("🟢", "Low", low_count, "green"),
+        ("🏘️", "Villages Monitored", villages_count, "cyan"),
+        ("📡", "Sensors Online", 5, "purple"),
+    ]
+    for col, (icon, label, value, cls) in zip(cards, card_data):
+        with col:
+            st.markdown(
+                f'<div class="risk-card {cls}"><div class="label">{icon} {label}</div><div class="value">{value}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+    # AI + WEATHER + SENSOR STATUS
+    a, w, s = st.columns([1.55, 1, 1])
+
+    with a:
+        level_icon = {"CRITICAL":"🚨", "HIGH":"⚠️", "MODERATE":"🟡", "LOW":"🟢"}.get(live_risk_level, "ℹ️")
+        st.markdown(
+            f"""
+            <div class="ai-panel">
+                <div class="section-title">🤖 Real-Time AI Risk Engine <span class="pill">● Live</span></div>
+                <div class="small-muted">Current landslide probability from live prototype sensor inputs</div>
+                <div style="display:flex;align-items:center;gap:28px;margin-top:20px;">
+                    <div>
+                        <div class="ai-number">{live_probability:.0f}%</div>
+                        <div class="small-muted">Landslide Probability</div>
+                    </div>
+                    <div style="flex:1;">
+                        <div style="font-size:1.25rem;font-weight:800;">{level_icon} {live_risk_level} RISK</div>
+                        <div class="small-muted" style="margin:8px 0 12px;">{risk_message(live_risk_level).replace('🚨 ', '').replace('⚠️ ', '').replace('🟡 ', '').replace('🟢 ', '')}</div>
+                        <div style="height:13px;border-radius:999px;background:linear-gradient(90deg,#27c977,#d8df43,#ffb52e,#ff3b4e);position:relative;">
+                            <div style="position:absolute;left:{max(1,min(99,live_probability))}%;top:-5px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 0 18px rgba(255,255,255,.85);transform:translateX(-50%);"></div>
+                        </div>
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:22px;">
+                    <div class="small-muted">🌧️<br><b style="color:white">{live_values['rainfall_mm']:.1f} mm</b><br>Rainfall</div>
+                    <div class="small-muted">💧<br><b style="color:white">{live_values['soil_moisture']:.1f}%</b><br>Moisture</div>
+                    <div class="small-muted">📐<br><b style="color:white">{live_values['slope_deg']:.1f}°</b><br>Slope</div>
+                    <div class="small-muted">🌍<br><b style="color:white">{live_values['ground_movement_mm']:.1f} mm</b><br>Movement</div>
+                    <div class="small-muted">⛰️<br><b style="color:white">{live_values['elevation_m']:.0f} m</b><br>Elevation</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
-    c1, c2, c3, c4 = st.columns(4)
+    with w:
+        st.markdown('<div class="glass">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">🌧️ Live Weather</div>', unsafe_allow_html=True)
+        try:
+            from services.weather import get_weather
+            weather = get_weather(27.586, 91.859)
+        except Exception:
+            weather = None
+        if weather:
+            temp = weather.get("temperature", "N/A")
+            rain = weather.get("rain", "N/A")
+            precip = weather.get("precipitation", "N/A")
+        else:
+            temp, rain, precip = "N/A", "N/A", "N/A"
+        st.markdown(f"<div class='small-muted'>Tawang, Arunachal Pradesh</div><div style='font-size:2.7rem;font-weight:800;margin:8px 0;'>☁️ {temp}°C</div><div style='color:#b9d8f0;'>Rainfall: {rain} mm</div><hr style='border-color:rgba(255,255,255,.08)'><div class='small-muted'>Precipitation</div><div style='font-size:1.25rem;font-weight:700;'>{precip} mm</div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with s:
+        st.markdown('<div class="glass">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">📡 Sensor Status</div>', unsafe_allow_html=True)
+        sensor_rows = [
+            ("Rainfall", f"{live_values['rainfall_mm']:.1f} mm"),
+            ("Soil Moisture", f"{live_values['soil_moisture']:.1f}%"),
+            ("Ground Movement", f"{live_values['ground_movement_mm']:.1f} mm"),
+            ("Slope Angle", f"{live_values['slope_deg']:.1f}°"),
+            ("Elevation", f"{live_values['elevation_m']:.0f} m"),
+        ]
+        for name, value in sensor_rows:
+            st.markdown(f"<div style='display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.07);'><span>{name}</span><span><b>{value}</b> <span style='color:#39dc8b'>● Online</span></span></div>", unsafe_allow_html=True)
+        st.markdown("<div style='color:#50e49a;margin-top:12px;font-size:.84rem;'>● All systems operational</div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # ANALYTICS ROW
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1, 1, 1.25])
 
     with c1:
-        st.metric("🚨 Critical Alerts", critical_count)
+        st.markdown('<div class="glass">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">📊 Risk Distribution</div>', unsafe_allow_html=True)
+        dist = pd.DataFrame({"Risk": ["Critical", "High", "Moderate", "Low"], "Count": [critical_count, high_count, moderate_count, low_count]})
+        if dist["Count"].sum() == 0:
+            dist["Count"] = [0, 0, 0, 1]
+        fig = px.pie(dist, names="Risk", values="Count", hole=.58)
+        fig.update_layout(height=235, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="#e8f1f8", showlegend=True, legend=dict(orientation="v"))
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with c2:
-        st.metric("⚠️ High Alerts", high_count)
+        st.markdown('<div class="glass">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">🏘️ Highest Risk Communities</div>', unsafe_allow_html=True)
+        top = dashboard_df.copy()
+        if not top.empty and "AI Risk (%)" in top.columns:
+            top = top.sort_values("AI Risk (%)", ascending=False).head(5)
+            for _, row in top.iterrows():
+                name = str(row.get("Village", "Unknown"))
+                risk = safe_float(row.get("AI Risk (%)", 0))
+                st.markdown(f"<div style='margin:12px 0;'><div style='display:flex;justify-content:space-between;'><span>{name}</span><b>{risk:.0f}%</b></div><div style='height:9px;background:rgba(255,255,255,.08);border-radius:99px;margin-top:5px;'><div style='width:{min(100,risk)}%;height:100%;border-radius:99px;background:linear-gradient(90deg,#36c978,#ffc52f,#ff4053);'></div></div></div>", unsafe_allow_html=True)
+        else:
+            st.info("No community risk data available for this filter.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with c3:
-        st.metric("🏘️ Villages Monitored", len(village_df))
-
-    with c4:
-        st.metric("🛣️ Roads Monitored", len(road_df))
-
-    st.markdown("---")
-
-    st.subheader("🟢 System Status")
-
-    s1, s2, s3, s4 = st.columns(4)
-
-    with s1:
-        st.success("🟢 AI Model Online" if model is not None
-                   else "🟡 Fallback Risk Engine")
-
-    with s2:
-        st.success("🟢 Weather Service Ready")
-
-    with s3:
-        st.success("🟢 Risk Engine Online")
-
-    with s4:
-        st.success("🟢 Monitoring Active")
-
-    if critical_count > 0:
-        st.error(
-            f"🚨 CRITICAL WARNING: {critical_count} location(s) "
-            "require immediate attention."
-        )
-    elif high_count > 0:
-        st.warning(
-            f"⚠️ HIGH RISK: {high_count} location(s) "
-            "require increased monitoring."
-        )
-    else:
-        st.success(
-            "🟢 No critical or high-risk village alerts detected."
-        )
-
-    st.markdown("---")
-
-    # --------------------------------------------------------
-    # WEATHER
-    # --------------------------------------------------------
-
-    st.subheader("🌧️ Live Weather — Tawang")
-
-    w1, w2, w3 = st.columns(3)
-
-    try:
-        from services.weather import get_weather
-
-        weather = get_weather(
-            latitude=27.586,
-            longitude=91.859,
-        )
-
-        if weather:
-            with w1:
-                st.metric(
-                    "Temperature",
-                    f"{weather.get('temperature', 'N/A')} °C",
-                )
-
-            with w2:
-                st.metric(
-                    "Precipitation",
-                    f"{weather.get('precipitation', 'N/A')} mm",
-                )
-
-            with w3:
-                st.metric(
-                    "Rain",
-                    f"{weather.get('rain', 'N/A')} mm",
-                )
+        st.markdown('<div class="glass">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">🚨 Live Alerts <span style="float:right;font-size:.8rem;color:#5fc7ff;">View All →</span></div>', unsafe_allow_html=True)
+        alerts = dashboard_df.copy()
+        if not alerts.empty and "AI Risk (%)" in alerts.columns:
+            alerts = alerts.sort_values("AI Risk (%)", ascending=False).head(4)
+            for _, row in alerts.iterrows():
+                lvl = str(row.get("Alert", row.get("Risk Level", "LOW")))
+                icon = {"CRITICAL":"🔴", "HIGH":"🟠", "MODERATE":"🟡", "LOW":"🟢"}.get(lvl,"🔵")
+                st.markdown(f"<div class='alert-item'><b>{icon} {lvl}</b> — {row.get('Village','Unknown')}<br><span class='small-muted'>AI landslide probability {safe_float(row.get('AI Risk (%)',0)):.0f}%</span></div>", unsafe_allow_html=True)
         else:
-            st.warning("Weather data unavailable.")
+            st.markdown("<div class='alert-item'>🟢 No active alerts for the selected filters.</div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    except Exception:
-        st.warning(
-            "Weather service is unavailable. "
-            "The rest of the monitoring system remains available."
-        )
+    # MAP PREVIEW
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    st.markdown('<div class="glass">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🗺️ Risk Map Preview</div>', unsafe_allow_html=True)
+    center = [27.5, 92.0]
+    if not dashboard_df.empty and "Latitude" in dashboard_df.columns and "Longitude" in dashboard_df.columns:
+        center = [safe_float(dashboard_df["Latitude"].mean()), safe_float(dashboard_df["Longitude"].mean())]
+    m = folium.Map(location=center, zoom_start=6, tiles="OpenStreetMap", control_scale=True)
+    if not dashboard_df.empty:
+        for _, row in dashboard_df.iterrows():
+            lat = safe_float(row.get("Latitude")); lon = safe_float(row.get("Longitude")); risk = safe_float(row.get("AI Risk (%)",0)); level = str(row.get("Alert", "LOW"))
+            color = {"CRITICAL":"red", "HIGH":"orange", "MODERATE":"beige", "LOW":"green"}.get(level,"blue")
+            folium.CircleMarker([lat,lon], radius=8, color=color, fill=True, fill_opacity=.75, popup=f"{row.get('Village','Unknown')}<br>Risk: {risk:.1f}%<br>Alert: {level}").add_to(m)
+    st_folium(m, width=None, height=360, returned_objects=[])
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("---")
-
-    # --------------------------------------------------------
-    # AI DEMO
-    # --------------------------------------------------------
-
-    st.subheader("🤖 AI Landslide Risk Prediction")
-
-    left, right = st.columns(2)
-
-    with left:
-        rainfall = st.slider(
-            "Rainfall (mm)",
-            0,
-            300,
-            160,
-            help="Estimated or observed rainfall.",
-        )
-
-        soil_moisture = st.slider(
-            "Soil Moisture (%)",
-            0,
-            100,
-            85,
-            help="Soil moisture percentage.",
-        )
-
-        slope = st.slider(
-            "Slope (degrees)",
-            0,
-            60,
-            35,
-            help="Terrain slope.",
-        )
-
-    with right:
-        ground_movement = st.slider(
-            "Ground Movement (mm)",
-            0,
-            30,
-            12,
-            help="Detected ground displacement.",
-        )
-
-        elevation = st.slider(
-            "Elevation (m)",
-            0,
-            5000,
-            2400,
-            help="Terrain elevation.",
-        )
-
-        analyze = st.button(
-            "🔍 Analyze Landslide Risk",
-            use_container_width=True,
-            type="primary",
-        )
-
-    if analyze:
-        fallback_score, fallback_level = calculate_risk(
-            rainfall,
-            soil_moisture,
-            slope,
-            ground_movement,
-            elevation,
-        )
-
-        probability = get_ai_probability(
-            {
-                "rainfall_mm": rainfall,
-                "soil_moisture": soil_moisture,
-                "slope_deg": slope,
-                "ground_movement_mm": ground_movement,
-                "elevation_m": elevation,
-            }
-        )
-
-        level = get_risk_level(probability)
-
-        r1, r2 = st.columns(2)
-
-        with r1:
-            st.metric(
-                "Risk Score",
-                f"{fallback_score:.2f}%",
-            )
-
-        with r2:
-            st.metric(
-                "AI Landslide Probability",
-                f"{probability:.2f}%",
-            )
-
-        st.progress(
-            int(max(0, min(100, round(probability)))),
-            text=f"AI Risk Probability: {probability:.2f}%",
-        )
-        st.markdown("### 🧠 Prediction Summary")
-
-        prediction_source = (
-            "Trained ML model (`landslide_model.pkl`)"
-            if model is not None
-            else "Fallback risk engine"
-        )
-
-        p1, p2, p3 = st.columns(3)
-        with p1:
-            st.metric("Prediction Source", "ML Model" if model is not None else "Fallback")
-        with p2:
-            st.metric("Risk Category", level)
-        with p3:
-            st.metric("Model Input Factors", len(FEATURE_COLUMNS))
-
-        st.caption(
-            f"Prediction generated using: {prediction_source}. "
-            "This is a prototype decision-support output."
-        )
+    st.caption("Prototype decision-support dashboard. AI probability is for demonstration and is not an official evacuation order.")
 
 
-        if level == "CRITICAL":
-            st.error("🚨 CRITICAL RISK")
-        elif level == "HIGH":
-            st.warning("⚠️ HIGH RISK")
-        elif level == "MODERATE":
-            st.info("🟡 MODERATE RISK")
-        else:
-            st.success("🟢 LOW RISK")
-
-        st.markdown(f"**Assessment:** {risk_message(level)}")
-
-        st.info(
-            f"**Recommended action:** "
-            f"{get_recommended_action(level)}"
-        )
-        # --------------------------------------------------------
-        # AI RISK EXPLANATION
-        # --------------------------------------------------------
-
-        st.markdown("---")
-        st.subheader("🔎 AI Risk Explanation")
-        st.caption(
-            "The following indicators show which environmental factors "
-            "are contributing most strongly to the current prototype assessment."
-        )
-
-        def indicator_level(value, low, moderate, high):
-            value = safe_float(value)
-            if value >= high:
-                return "VERY HIGH"
-            if value >= moderate:
-                return "HIGH"
-            if value >= low:
-                return "MODERATE"
-            return "LOW"
-
-        driver_data = pd.DataFrame(
-            {
-                "Risk Driver": [
-                    "🌧️ Rainfall",
-                    "💧 Soil Moisture",
-                    "📐 Slope",
-                    "🌍 Ground Movement",
-                    "⛰️ Elevation",
-                ],
-                "Value": [
-                    f"{rainfall} mm",
-                    f"{soil_moisture}%",
-                    f"{slope}°",
-                    f"{ground_movement} mm",
-                    f"{elevation} m",
-                ],
-                "Indicator": [
-                    indicator_level(rainfall, 75, 150, 225),
-                    indicator_level(soil_moisture, 40, 65, 80),
-                    indicator_level(slope, 20, 30, 40),
-                    indicator_level(ground_movement, 3, 8, 15),
-                    indicator_level(elevation, 1000, 2000, 3000),
-                ],
-            }
-        )
-
-        st.dataframe(
-            driver_data,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        d1, d2, d3, d4, d5 = st.columns(5)
-        driver_columns = [d1, d2, d3, d4, d5]
-
-        for column, (_, driver) in zip(driver_columns, driver_data.iterrows()):
-            with column:
-                st.metric(
-                    driver["Risk Driver"],
-                    driver["Indicator"],
-                    driver["Value"],
-                )
-
-        st.info(
-            "💡 **How to interpret this:** Higher rainfall, soil moisture, "
-            "slope and ground movement can increase landslide susceptibility. "
-            "Elevation is displayed as terrain context. The final AI probability "
-            "comes from the loaded model when available; otherwise the fallback "
-            "risk engine is used."
-        )
-
-    st.markdown("---")
-
-    st.caption(
-        "Prototype decision-support system. AI probabilities are "
-        "not official evacuation orders."
-    )
-
-
-# ============================================================
 # RISK MAP
 # ============================================================
 
