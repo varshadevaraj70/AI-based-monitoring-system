@@ -1,0 +1,28 @@
+state,inventory_period,inventory_type,year,landslide_count,region,data_source,timestamp,location,landslide
+Sikkim,2014,Seasonal monsoon,2014,73,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2014-07-15,Sikkim,1
+Sikkim,2017,Seasonal monsoon,2017,79,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2017-07-15,Sikkim,1
+Sikkim,2011,Event-based,2011,1408,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2011-07-15,Sikkim,1
+Sikkim,2012,Event-based,2012,8,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2012-07-15,Sikkim,1
+Sikkim,2016,Event-based,2016,1,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2016-07-15,Sikkim,1
+Arunachal Pradesh,2014,Seasonal monsoon,2014,2904,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2014-07-15,Arunachal Pradesh,1
+Arunachal Pradesh,2017,Seasonal monsoon,2017,4709,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2017-07-15,Arunachal Pradesh,1
+Arunachal Pradesh,2016,Event-based,2016,75,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2016-07-15,Arunachal Pradesh,1
+Arunachal Pradesh,2021,Event-based,2021,1,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2021-07-15,Arunachal Pradesh,1
+Nagaland,2014,Seasonal monsoon,2014,54,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2014-07-15,Nagaland,1
+Nagaland,2017,Seasonal monsoon,2017,2071,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2017-07-15,Nagaland,1
+Nagaland,2017,Event-based,2017,7,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2017-07-15,Nagaland,1
+Manipur,2014,Seasonal monsoon,2014,379,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2014-07-15,Manipur,1
+Manipur,2017,Seasonal monsoon,2017,4559,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2017-07-15,Manipur,1
+Manipur,2017,Event-based,2017,556,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2017-07-15,Manipur,1
+Manipur,2022,Event-based,2022,1,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2022-07-15,Manipur,1
+Mizoram,2014,Seasonal monsoon,2014,1205,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2014-07-15,Mizoram,1
+Mizoram,2017,Seasonal monsoon,2017,2254,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2017-07-15,Mizoram,1
+Mizoram,2017,Event-based,2017,8926,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2017-07-15,Mizoram,1
+Tripura,2014,Seasonal monsoon,2014,56,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2014-07-15,Tripura,1
+Tripura,2017,Seasonal monsoon,2017,8014,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2017-07-15,Tripura,1
+Assam,2014,Seasonal monsoon,2014,1243,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2014-07-15,Assam,1
+Assam,2017,Seasonal monsoon,2017,793,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2017-07-15,Assam,1
+Assam,2017,Event-based,2017,533,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2017-07-15,Assam,1
+Assam,2022,Event-based,2022,5091,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2022-07-15,Assam,1
+Meghalaya,2014,Seasonal monsoon,2014,2127,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2014-07-15,Meghalaya,1
+Meghalaya,2017,Seasonal monsoon,2017,512,Northeast India,NRSC/ISRO Landslide Inventory of India 1998-2022,2017-07-15,Meghalaya,1
