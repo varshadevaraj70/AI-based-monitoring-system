@@ -2,6 +2,11 @@ import base64
 import hashlib
 import math
 import sqlite3
+import io
+import re
+import zipfile
+
+import requests
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -12,6 +17,15 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 import streamlit.components.v1 as components
+
+try:
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.metrics import accuracy_score, precision_score, confusion_matrix
+    SKLEARN_AVAILABLE = True
+except Exception:
+    RandomForestClassifier = None
+    accuracy_score = precision_score = confusion_matrix = None
+    SKLEARN_AVAILABLE = False
 from streamlit_folium import st_folium
 
 from models.risk_engine import calculate_risk
@@ -1877,6 +1891,146 @@ def predicted_landslide_rows(limit=5):
 # MODULE NAVIGATION METADATA
 # ============================================================
 
+# ============================================================
+# AI TRAINING / BACKTESTING / LIVE SIMULATION
+# ============================================================
+
+TRAINING_MODEL_PATH = BASE_DIR / "models" / "landslide_trained_model.pkl"
+HISTORICAL_DATA_PATH = BASE_DIR / "data" / "ner_landslide_historical_data.csv"
+NER_DATA_FILENAME = "ner_landslide_historical_data.csv"
+NER_STATES = ["Arunachal Pradesh", "Assam", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Sikkim", "Tripura"]
+NER_INVENTORY_SOURCE_URL = "https://www.nrsc.gov.in/nrscnew/resources_atlas_landslide.php"
+NER_INVENTORY_PDF_URL = "https://www.nrsc.gov.in/nrscnew/assets/pdf/announcements/DRM_Meet_2023/S-IV_GeologicalDisasters.pdf"
+NER_GSI_SOURCE_URL = "https://bhusanket.gsi.gov.in/"
+TRAIN_FEATURE_COLUMNS = ["rainfall_72h_mm", "soil_moisture", "ground_movement_mm", "slope_deg", "elevation_m"]
+
+def _first_existing_column(df, candidates):
+    for name in candidates:
+        if name in df.columns:
+            return name
+    return None
+
+def _find_ner_historical_csv():
+    """Find the real NER CSV even when Streamlit is launched from another working directory."""
+    candidates = [
+        HISTORICAL_DATA_PATH,
+        Path.cwd() / "data" / NER_DATA_FILENAME,
+        Path.cwd() / NER_DATA_FILENAME,
+        BASE_DIR / NER_DATA_FILENAME,
+        BASE_DIR.parent / "data" / NER_DATA_FILENAME,
+    ]
+    seen = set()
+    for candidate in candidates:
+        candidate = candidate.resolve()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.is_file():
+            return candidate
+    return None
+
+def _write_builtin_ner_dataset():
+    """Create the bundled real NRSC/ISRO NER inventory if the CSV was not copied beside app.py."""
+    rows = [
+        ("Sikkim",2014,"Seasonal monsoon",2014,73),("Sikkim",2017,"Seasonal monsoon",2017,79),("Sikkim",2011,"Event-based",2011,1408),("Sikkim",2012,"Event-based",2012,8),("Sikkim",2016,"Event-based",2016,1),
+        ("Arunachal Pradesh",2014,"Seasonal monsoon",2014,2904),("Arunachal Pradesh",2017,"Seasonal monsoon",2017,4709),("Arunachal Pradesh",2016,"Event-based",2016,75),("Arunachal Pradesh",2021,"Event-based",2021,1),
+        ("Nagaland",2014,"Seasonal monsoon",2014,54),("Nagaland",2017,"Seasonal monsoon",2017,2071),("Nagaland",2017,"Event-based",2017,7),
+        ("Manipur",2014,"Seasonal monsoon",2014,379),("Manipur",2017,"Seasonal monsoon",2017,4559),("Manipur",2017,"Event-based",2017,556),("Manipur",2022,"Event-based",2022,1),
+        ("Mizoram",2014,"Seasonal monsoon",2014,1205),("Mizoram",2017,"Seasonal monsoon",2017,2254),("Mizoram",2017,"Event-based",2017,8926),
+        ("Tripura",2014,"Seasonal monsoon",2014,56),("Tripura",2017,"Seasonal monsoon",2017,8014),
+        ("Assam",2014,"Seasonal monsoon",2014,1243),("Assam",2017,"Seasonal monsoon",2017,793),("Assam",2017,"Event-based",2017,533),("Assam",2022,"Event-based",2022,5091),
+        ("Meghalaya",2014,"Seasonal monsoon",2014,2127),("Meghalaya",2017,"Seasonal monsoon",2017,512),
+    ]
+    columns = ["state","inventory_period","inventory_type","year","landslide_count","region","data_source","timestamp","location","landslide"]
+    df = pd.DataFrame([
+        {
+            "state": state, "inventory_period": year, "inventory_type": inventory_type, "year": year,
+            "landslide_count": count, "region": "Northeast India",
+            "data_source": "NRSC/ISRO Landslide Inventory of India 1998-2022",
+            "timestamp": f"{year}-07-15", "location": state, "landslide": 1
+        }
+        for state, period, inventory_type, year, count in rows
+    ], columns=columns)
+    try:
+        HISTORICAL_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(HISTORICAL_DATA_PATH, index=False)
+    except Exception:
+        pass
+    return df
+
+def prepare_historical_data(uploaded_df=None):
+    """Load the real eight-state Northeast India landslide inventory."""
+    if uploaded_df is not None and not uploaded_df.empty:
+        df = uploaded_df.copy()
+        aliases = {
+            "timestamp": ["timestamp", "datetime", "date", "year"],
+            "location": ["location", "village", "district", "state", "area", "site"],
+            "state": ["state", "State"],
+            "landslide": ["landslide", "landslide_occurred", "event", "label", "target"],
+            "landslide_count": ["landslide_count", "count", "incidence_count", "number_of_landslides"],
+            "rainfall_72h_mm": ["rainfall_72h_mm", "rainfall_72h", "rain_72h_mm"],
+            "soil_moisture": ["soil_moisture", "soil_moisture_pct", "soil_moisture_percent"],
+            "ground_movement_mm": ["ground_movement_mm", "ground_movement", "movement_mm", "displacement_mm"],
+            "slope_deg": ["slope_deg", "slope", "slope_angle"],
+            "elevation_m": ["elevation_m", "elevation"],
+        }
+        rename = {}
+        for target, candidates in aliases.items():
+            found = _first_existing_column(df, candidates)
+            if found and found != target:
+                rename[found] = target
+        df = df.rename(columns=rename)
+        if "timestamp" in df.columns:
+            df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        elif "year" in df.columns:
+            df["timestamp"] = pd.to_datetime(df["year"].astype(str) + "-07-15", errors="coerce")
+        for col in TRAIN_FEATURE_COLUMNS + ["landslide_count", "year"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        if "landslide" in df.columns:
+            df["landslide"] = pd.to_numeric(df["landslide"], errors="coerce").astype("Int64").clip(0, 1)
+        df["data_source"] = df.get("data_source", "User-provided real NER dataset")
+        return df.reset_index(drop=True)
+    csv_path = _find_ner_historical_csv()
+    if csv_path is None:
+        df = _write_builtin_ner_dataset()
+    else:
+        df = pd.read_csv(csv_path)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df["landslide_count"] = pd.to_numeric(df["landslide_count"], errors="coerce")
+    df["year"] = pd.to_numeric(df["year"], errors="coerce")
+    df["landslide"] = 1
+    df["region"] = "Northeast India"
+    return df.sort_values(["timestamp", "state"]).reset_index(drop=True)
+
+def get_train_features(history_df):
+    return [c for c in TRAIN_FEATURE_COLUMNS if c in history_df.columns and history_df[c].notna().sum() > 20 and history_df[c].nunique(dropna=True) > 1]
+
+def train_and_validate_model(history_df, test_fraction=0.2):
+    if not SKLEARN_AVAILABLE:
+        raise RuntimeError("scikit-learn is required for model training.")
+    if "landslide" not in history_df.columns:
+        raise ValueError("The dataset has no ground-truth landslide label column.")
+    df = history_df.copy()
+    df["landslide"] = pd.to_numeric(df["landslide"], errors="coerce")
+    df = df.dropna(subset=["landslide"]).copy()
+    features = get_train_features(df)
+    if len(features) < 2:
+        raise ValueError("The real NER inventory contains event counts, not continuous sensor measurements. No sensor values are invented. Upload a real NER sensor dataset with at least two measured features to train the classifier.")
+    df = df.dropna(subset=features).sort_values("timestamp" if "timestamp" in df.columns else features[0])
+    if df["landslide"].nunique() < 2:
+        raise ValueError("The real dataset does not contain both normal and landslide labels. Synthetic negatives are not created.")
+    split = max(1, min(len(df) - 1, int(len(df) * (1 - test_fraction))))
+    train, test = df.iloc[:split], df.iloc[split:]
+    if train["landslide"].nunique() < 2:
+        raise ValueError("The time-ordered training period contains only one class.")
+    clf = RandomForestClassifier(n_estimators=180, max_depth=8, random_state=42, class_weight="balanced")
+    clf.fit(train[features], train["landslide"].astype(int))
+    pred = clf.predict(test[features])
+    tn, fp, fn, tp = confusion_matrix(test["landslide"].astype(int), pred, labels=[0, 1]).ravel()
+    metrics = {"Accuracy": accuracy_score(test["landslide"].astype(int), pred), "Precision": precision_score(test["landslide"].astype(int), pred, zero_division=0), "False Alarm Rate": fp / (fp + tn) if (fp + tn) else 0.0, "True Positives": int(tp), "False Positives": int(fp), "False Negatives": int(fn), "True Negatives": int(tn), "Features": features}
+    return clf, metrics, train, test, pred
+
 MODULE_INFO = {
     "Dashboard": {"icon":"🏠", "tagline":"Command center for the complete NER landslide situation.", "purpose":"Combines AI risk, weather, sensors, communities and alerts in one operational view.", "data":"AI probability, environmental indicators, village priority and active warning status."},
     "Risk Map": {"icon":"🗺️", "tagline":"GIS-based spatial view of hazards and exposed locations.", "purpose":"Locate vulnerable communities, risk zones, roads, infrastructure and field incidents.", "data":"Latitude/longitude, AI risk, road risk, infrastructure and geo-tagged reports."},
@@ -1887,6 +2041,7 @@ MODULE_INFO = {
     "Analytics": {"icon":"📊", "tagline":"Explore risk patterns and response priorities across communities.", "purpose":"Compare AI risk, priority scores and warning distribution to support decisions.", "data":"Village-level risk, priority, population, alert level and regional breakdowns."},
     "Incident Reporting": {"icon":"📸", "tagline":"Capture field observations with location and evidence.", "purpose":"Create a geo-tagged incident record that can appear on the GIS map and support response.", "data":"Coordinates, severity, road status, village, description and optional photo."},
     "Reports": {"icon":"📄", "tagline":"Generate decision-ready monitoring summaries.", "purpose":"Review, filter and export early-warning information for teams and presentations.", "data":"Risk, alert, priority, population, recommended action and monitoring statistics."},
+    "AI Training & Simulation": {"icon":"🧠", "tagline":"Train and replay the AI using real USGS and NASA historical data.", "purpose":"Use authoritative monitoring measurements and real landslide-event records, validate only when real labels are available, and replay the historical sensor stream.", "data":"USGS rainfall, soil moisture and movement measurements plus NASA landslide-event labels when spatially and temporally matched."},
     "Settings": {"icon":"⚙️", "tagline":"Configure prototype monitoring and notification behavior.", "purpose":"Control alert channels, simulation settings and AI-assisted priority configuration.", "data":"Local prototype settings; production deployment would connect these to secure services."},
 }
 
@@ -2180,6 +2335,61 @@ st.markdown(
         color:#8fe6ff; font-size:.67rem; font-weight:800;
     }
 
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# SIDEBAR LAYOUT FIX: keep Streamlit's native sidebar layout intact so opening
+# the sidebar shifts the main content, while the sidebar itself remains pinned
+# by Streamlit and gets its own internal scrollbar.  Do not override the native
+# sidebar with position:fixed here because that removes the main-content offset.
+st.markdown(
+    """
+    <style>
+    /* Let Streamlit own the sidebar position/layout. */
+    section[data-testid="stSidebar"] {
+        height: 100vh !important;
+        max-height: 100vh !important;
+        overflow: hidden !important;
+    }
+    section[data-testid="stSidebar"] > div:first-child {
+        height: 100vh !important;
+        max-height: 100vh !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        overscroll-behavior: contain !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: thin !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+        min-height: 100% !important;
+        height: auto !important;
+        overflow: visible !important;
+    }
+
+    /* Never create a competing fixed/nested main-page scrollbar. */
+    html, body, .stApp, [data-testid="stAppViewContainer"],
+    [data-testid="stMain"], [data-testid="stAppViewContainer"] > .main,
+    [data-testid="stMainBlockContainer"] {
+        max-height: none !important;
+        overflow-y: visible !important;
+        overflow-x: hidden !important;
+    }
+
+    /* The opener stays reachable from the left edge after the main page scrolls. */
+    [data-testid="stExpandSidebarButton"] {
+        position: fixed !important;
+        left: 0 !important;
+        top: 0 !important;
+        z-index: 2147483000 !important;
+    }
+
+    @media (max-width: 700px) {
+        section[data-testid="stSidebar"] {
+            width: min(88vw, 22rem) !important;
+        }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -2541,10 +2751,18 @@ if st.session_state.private_access:
         st.rerun()
 
 st.sidebar.markdown(f'<div class="sidebar-section">{t("Navigation")}</div>', unsafe_allow_html=True)
+
+def _navigation_changed():
+    # This callback runs immediately when the user selects another section.
+    # The following rerun then injects a direct DOM script that collapses the
+    # native Streamlit sidebar after the new section has rendered.
+    st.session_state["_sidebar_should_close"] = True
+
 page = st.sidebar.radio(
     "Navigation", NAV_OPTIONS,
     format_func=lambda name: f"{MODULE_INFO[name]['icon']}  {t(name)}",
     key="navigation", label_visibility="collapsed",
+    on_change=_navigation_changed,
 )
 _selected_info = MODULE_INFO[page]
 
@@ -2608,19 +2826,12 @@ if st.session_state.private_login_target:
     st.info("Private access is automatically closed when you leave this private section. You will need to enter the password again next time.")
     st.stop()
 
-# Reset the main page scroll position whenever the user switches modules.
-# Streamlit reruns the script but normally preserves the browser's previous
-# scroll position, so a small component asks the parent Streamlit page to
-# return to the top after navigation changes.
-_previous_page = st.session_state.get("_last_rendered_page")
-_page_changed = _previous_page is not None and _previous_page != page
-st.session_state._last_rendered_page = page
-if _page_changed:
-    # Use st.html instead of components.html here. st.html is rendered directly
-    # in the Streamlit app DOM, so its JavaScript can access the native sidebar
-    # collapse button. components.html runs inside a sandboxed iframe, which can
-    # prevent the automatic-close click from reaching Streamlit.
-    _sidebar_close_js = """
+# Reset the main page scroll position and close the sidebar whenever the user
+# switches to another navigation section.  The callback flag is more reliable
+# than comparing the previous page because Streamlit can rerun the script several
+# times while the sidebar is opening/closing.
+if st.session_state.pop("_sidebar_should_close", False):
+    _sidebar_close_js = r"""
     <script>
     (() => {
         const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -2629,8 +2840,8 @@ if _page_changed:
             try {
                 const candidates = [
                     document.querySelector('[data-testid="stAppViewContainer"] > .main'),
-                    document.querySelector('[data-testid="stAppViewContainer"]'),
                     document.querySelector('[data-testid="stMain"]'),
+                    document.querySelector('[data-testid="stAppViewContainer"]'),
                     document.scrollingElement,
                     document.documentElement,
                     document.body
@@ -2647,7 +2858,7 @@ if _page_changed:
             } catch (e) {}
         }
 
-        function findCollapseButton() {
+        function getCollapseButton() {
             const selectors = [
                 '[data-testid="stSidebarCollapseButton"] button',
                 '[data-testid="stSidebarCollapseButton"]',
@@ -2659,40 +2870,47 @@ if _page_changed:
             ];
 
             for (const selector of selectors) {
-                const button = document.querySelector(selector);
-                if (button && typeof button.click === 'function') return button;
+                const el = document.querySelector(selector);
+                if (el && typeof el.click === 'function') return el;
             }
 
-            const buttons = Array.from(document.querySelectorAll('button'));
-            return buttons.find((button) => {
+            return Array.from(document.querySelectorAll('button')).find((button) => {
                 const text = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''}`.toLowerCase();
                 return text.includes('collapse sidebar') || text.includes('close sidebar');
             }) || null;
         }
 
-        function closeSidebar() {
+        function sidebarIsOpen() {
             const sidebar = document.querySelector('section[data-testid="stSidebar"]');
             if (!sidebar) return false;
+            const rect = sidebar.getBoundingClientRect();
+            const style = window.getComputedStyle(sidebar);
+            return rect.width > 40 && style.display !== 'none' && style.visibility !== 'hidden';
+        }
 
-            if (sidebar.getAttribute('aria-expanded') === 'false') return true;
-
-            const button = findCollapseButton();
+        function clickCollapseButton() {
+            if (!sidebarIsOpen()) return true;
+            const button = getCollapseButton();
             if (!button) return false;
-
-            button.click();
-            return true;
+            try {
+                button.focus({preventScroll: true});
+                button.click();
+                button.dispatchEvent(new MouseEvent('click', {
+                    bubbles: true, cancelable: true, view: window
+                }));
+                return true;
+            } catch (e) {
+                return false;
+            }
         }
 
         async function run() {
             resetMainScroll();
-
-            // Wait for Streamlit's rerender to finish, then click the real native
-            // collapse button. Several retries handle slower browser/network runs.
-            const delays = [0, 50, 150, 300, 500, 800, 1200, 1800, 2500];
+            const delays = [0, 80, 180, 350, 600, 900, 1300, 1800, 2500];
             for (const delay of delays) {
                 if (delay) await sleep(delay);
                 resetMainScroll();
-                if (closeSidebar()) return;
+                if (clickCollapseButton()) return;
             }
         }
 
@@ -2700,11 +2918,9 @@ if _page_changed:
     })();
     </script>
     """
-
     if hasattr(st, "html"):
         st.html(_sidebar_close_js, width="content", unsafe_allow_javascript=True)
     else:
-        # Compatibility fallback for older Streamlit versions.
         components.html(_sidebar_close_js, height=1, scrolling=False)
 
 
@@ -2719,6 +2935,7 @@ SIDEBAR_THEMES = {
     "Analytics": {"main":"#a855f7", "main2":"#ec4899", "soft":"rgba(168,85,247,.17)", "bg1":"#180d25", "bg2":"#180d1b"},
     "Incident Reporting": {"main":"#f59e0b", "main2":"#ef4444", "soft":"rgba(245,158,11,.17)", "bg1":"#21150a", "bg2":"#1d1016"},
     "Reports": {"main":"#14b8a6", "main2":"#3b82f6", "soft":"rgba(20,184,166,.17)", "bg1":"#061d1c", "bg2":"#071326"},
+    "AI Training & Simulation": {"main":"#06b6d4", "main2":"#8b5cf6", "soft":"rgba(6,182,212,.17)", "bg1":"#071a25", "bg2":"#120d24"},
     "Settings": {"main":"#8b5cf6", "main2":"#d946ef", "soft":"rgba(139,92,246,.17)", "bg1":"#130d25", "bg2":"#1b0d20"},
 }
 _theme = SIDEBAR_THEMES[page]
@@ -5348,6 +5565,204 @@ elif page == "Reports":
 # ============================================================
 # SETTINGS
 # ============================================================
+
+elif page == "AI Training & Simulation":
+    # ========================================================
+    # NER AI LAB — dedicated theme + interactive training UI
+    # ========================================================
+    st.markdown(
+        """
+        <style>
+        .ai-lab-shell { position:relative; overflow:hidden; margin:-1rem -1rem 1.5rem; padding:30px 28px 26px;
+            border:1px solid rgba(73,214,255,.28); border-radius:24px;
+            background:radial-gradient(circle at 8% 8%, rgba(6,182,212,.22), transparent 28%),
+                       radial-gradient(circle at 92% 18%, rgba(139,92,246,.24), transparent 30%),
+                       linear-gradient(135deg, #061724 0%, #0a1228 52%, #160d2b 100%);
+            box-shadow:0 20px 55px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.06); }
+        .ai-lab-shell:before { content:""; position:absolute; width:240px; height:240px; right:-90px; bottom:-150px;
+            border:1px solid rgba(6,182,212,.22); border-radius:50%; box-shadow:0 0 0 28px rgba(6,182,212,.04), 0 0 0 58px rgba(139,92,246,.035); }
+        .ai-lab-kicker { color:#55e7ff; font-size:.72rem; font-weight:900; letter-spacing:.16em; text-transform:uppercase; margin-bottom:7px; }
+        .ai-lab-title { color:#f7fcff; font-size:2.25rem; line-height:1.05; font-weight:900; margin:0; }
+        .ai-lab-subtitle { color:#a9c4d6; max-width:850px; margin:10px 0 0; font-size:.94rem; line-height:1.55; }
+        .ai-chip-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+        .ai-chip { padding:6px 10px; border-radius:999px; border:1px solid rgba(110,225,255,.22); background:rgba(255,255,255,.045); color:#dff8ff; font-size:.72rem; font-weight:800; }
+        .ai-section { margin:20px 0 12px; padding:15px 17px; border-radius:16px; border:1px solid rgba(107,194,255,.14);
+            background:linear-gradient(135deg, rgba(7,28,46,.78), rgba(19,13,42,.72)); box-shadow:0 12px 30px rgba(0,0,0,.16); }
+        .ai-section h3 { margin:0; color:#f6fbff; font-size:1.05rem; }
+        .ai-section p { margin:5px 0 0; color:#9eb8ca; font-size:.78rem; }
+        .ai-stat { padding:15px 16px; min-height:94px; border-radius:15px; border:1px solid rgba(115,211,255,.16);
+            background:linear-gradient(145deg, rgba(8,31,49,.86), rgba(23,15,46,.76)); box-shadow:0 10px 25px rgba(0,0,0,.16); }
+        .ai-stat-label { color:#88aabd; font-size:.69rem; font-weight:800; text-transform:uppercase; letter-spacing:.08em; }
+        .ai-stat-value { color:#f7fcff; font-size:1.55rem; font-weight:900; margin-top:4px; }
+        .ai-stat-note { color:#7fa2b8; font-size:.67rem; margin-top:2px; }
+        .ai-status { display:flex; align-items:center; gap:9px; padding:10px 13px; border-radius:12px; margin:9px 0;
+            background:rgba(6,182,212,.08); border:1px solid rgba(6,182,212,.18); color:#c9f6ff; font-size:.78rem; }
+        .ai-status-dot { width:9px; height:9px; border-radius:50%; background:#39e6ff; box-shadow:0 0 14px #39e6ff; flex:0 0 auto; }
+        .ai-step { display:flex; align-items:center; gap:10px; margin:4px 0; color:#b8cbd7; font-size:.77rem; }
+        .ai-step-no { width:24px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:50%;
+            background:linear-gradient(135deg,#06b6d4,#8b5cf6); color:white; font-weight:900; font-size:.72rem; box-shadow:0 5px 15px rgba(6,182,212,.22); }
+        .ai-footnote { padding:12px 14px; border-left:3px solid #06b6d4; border-radius:9px; background:rgba(6,182,212,.06); color:#9db8c8; font-size:.72rem; line-height:1.5; }
+        div[data-testid="stTabs"] button[role="tab"] { color:#91aebe !important; font-weight:800 !important; }
+        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] { color:#55e7ff !important; }
+        div[data-testid="stTabs"] [data-baseweb="tab-highlight"] { background:#06b6d4 !important; box-shadow:0 0 14px rgba(6,182,212,.65); }
+        .stApp:has(.ai-lab-shell) [data-testid="stMetric"] { background:linear-gradient(145deg, rgba(6,27,43,.82), rgba(24,13,46,.72)); border:1px solid rgba(103,215,255,.14); padding:12px; border-radius:14px; }
+        .stApp:has(.ai-lab-shell) [data-testid="stProgressBar"] > div > div { background:linear-gradient(90deg,#06b6d4,#8b5cf6) !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+        <div class="ai-lab-shell">
+            <div class="ai-lab-kicker">NER • AI LAB • HISTORICAL INTELLIGENCE</div>
+            <div class="ai-lab-title">🧠 AI Training & Simulation</div>
+            <div class="ai-lab-subtitle">
+                Explore real Northeast India landslide history, validate the AI only with genuine labelled sensor observations,
+                and replay historical records as an interactive monitoring timeline.
+            </div>
+            <div class="ai-chip-row">
+                <span class="ai-chip">🗺️ 8 NER States</span>
+                <span class="ai-chip">📚 NRSC / ISRO Inventory</span>
+                <span class="ai-chip">🧪 Time-ordered Backtest</span>
+                <span class="ai-chip">▶ Historical Replay</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="ai-section"><h3>⚡ AI Lab Workflow</h3><p>Four clear stages keep the demonstration transparent and judge-friendly.</p></div>', unsafe_allow_html=True)
+    w1, w2, w3, w4 = st.columns(4)
+    for col, num, title in [
+        (w1, "1", "Load real data"), (w2, "2", "Explore history"),
+        (w3, "3", "Train & validate"), (w4, "4", "Replay the past")
+    ]:
+        with col:
+            st.markdown(f'<div class="ai-step"><span class="ai-step-no">{num}</span><b>{title}</b></div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="ai-section"><h3>📡 1. Real Northeast India Historical Data</h3><p>Default dataset: real NRSC/ISRO mapped landslide inventory records for the eight NER states.</p></div>', unsafe_allow_html=True)
+    uploaded_history = st.file_uploader(
+        "Optional: upload a real labelled NER sensor CSV",
+        type=["csv"],
+        key="historical_training_csv",
+        help="For genuine AI training, provide measured sensor features plus a real ground-truth label (0 = normal, 1 = landslide).",
+    )
+    try:
+        history_df = prepare_historical_data(pd.read_csv(uploaded_history) if uploaded_history is not None else None)
+        if uploaded_history is not None:
+            st.success("Using your uploaded real NER dataset.")
+    except Exception as exc:
+        history_df = pd.DataFrame()
+        st.error(f"NER historical data could not be loaded: {exc}")
+
+    if not history_df.empty:
+        state_filter = st.multiselect("Filter NER states", NER_STATES, default=NER_STATES, key="ner_history_states")
+        filtered_history = history_df[history_df["state"].isin(state_filter)].copy() if "state" in history_df.columns else history_df.copy()
+        if filtered_history.empty:
+            st.warning("Select at least one NER state to continue.")
+            filtered_history = history_df.copy()
+
+        total_events = int(pd.to_numeric(filtered_history.get("landslide_count", pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
+        years = pd.to_numeric(filtered_history.get("year", pd.Series(dtype=float)), errors="coerce").dropna()
+        year_span = f"{int(years.min())}–{int(years.max())}" if not years.empty else "N/A"
+        states_present = filtered_history["state"].nunique() if "state" in filtered_history.columns else 0
+
+        s1, s2, s3, s4 = st.columns(4)
+        for col, label, value, note in [
+            (s1, "Historical records", f"{len(filtered_history):,}", "real inventory rows"),
+            (s2, "Mapped incidences", f"{total_events:,}", "reported/mapped events"),
+            (s3, "NER states", f"{states_present}/8", "selected states"),
+            (s4, "Historical span", year_span, "inventory period"),
+        ]:
+            with col:
+                st.markdown(f'<div class="ai-stat"><div class="ai-stat-label">{label}</div><div class="ai-stat-value">{value}</div><div class="ai-stat-note">{note}</div></div>', unsafe_allow_html=True)
+
+        tabs = st.tabs(["📊 Historical Explorer", "🤖 Model Training", "▶ Live Replay"])
+
+        with tabs[0]:
+            st.markdown('<div class="ai-status"><span class="ai-status-dot"></span><b>Real-data mode:</b>&nbsp; no synthetic sensor values are added to the NER inventory.</div>', unsafe_allow_html=True)
+            display_cols = [c for c in ["timestamp", "state", "year", "inventory_type", "landslide_count", "region", "data_source"] if c in filtered_history.columns]
+            st.dataframe(filtered_history[display_cols], use_container_width=True, hide_index=True)
+
+            chart_df = filtered_history.groupby("state", as_index=False)["landslide_count"].sum().sort_values("landslide_count", ascending=False)
+            if not chart_df.empty:
+                chart = px.bar(
+                    chart_df,
+                    x="state",
+                    y="landslide_count",
+                    title="Mapped landslide incidences by NER state",
+                    labels={"state": "State", "landslide_count": "Mapped incidences"},
+                )
+                chart.update_layout(template="plotly_dark", height=380, margin=dict(l=10, r=10, t=55, b=10))
+                st.plotly_chart(chart, use_container_width=True, config={"displayModeBar": False})
+
+        with tabs[1]:
+            st.markdown('<div class="ai-section"><h3>🧪 Transparent AI Training</h3><p>The classifier is intentionally blocked when the real inventory lacks measured sensor features and both ground-truth classes.</p></div>', unsafe_allow_html=True)
+            st.markdown("The default NRSC/ISRO inventory contains real mapped landslide events, but it is **not a paired normal-vs-landslide sensor dataset**. The app will never manufacture negative samples or fake rainfall, soil-moisture, slope, elevation or movement values.")
+            feature_candidates = [c for c in TRAIN_FEATURE_COLUMNS if c in filtered_history.columns and filtered_history[c].notna().sum() > 20 and filtered_history[c].nunique(dropna=True) > 1]
+            f1, f2, f3 = st.columns(3)
+            f1.metric("Measured AI features", len(feature_candidates), help="Features available with enough non-missing variation for training.")
+            f2.metric("Ground-truth classes", int(filtered_history["landslide"].nunique()) if "landslide" in filtered_history.columns else 0, help="Training needs both normal and landslide labels.")
+            f3.metric("Training status", "READY" if len(feature_candidates) >= 2 and "landslide" in filtered_history.columns and filtered_history["landslide"].nunique() >= 2 else "WAITING")
+
+            if st.button("🤖 Train AI on real labelled sensor data", type="primary", key="train_ai_model"):
+                try:
+                    clf, metrics, train_df, test_df, pred = train_and_validate_model(filtered_history)
+                    TRAINING_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+                    joblib.dump(clf, TRAINING_MODEL_PATH)
+                    st.session_state.training_metrics = metrics
+                    st.session_state.training_model_ready = True
+                    st.session_state.training_features = metrics["Features"]
+                    st.success(f"Model trained on {len(train_df):,} real records and tested on {len(test_df):,} hidden real records.")
+                except Exception as exc:
+                    st.warning(str(exc))
+
+            if st.session_state.get("training_metrics"):
+                metrics = st.session_state.training_metrics
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Accuracy", f"{metrics['Accuracy']*100:.1f}%")
+                m2.metric("Precision", f"{metrics['Precision']*100:.1f}%")
+                m3.metric("False Alarm Rate", f"{metrics['False Alarm Rate']*100:.1f}%")
+                st.progress(float(metrics["Accuracy"]), text=f"Backtest accuracy: {metrics['Accuracy']*100:.1f}%")
+                st.caption(f"TP: {metrics['True Positives']} • FP: {metrics['False Positives']} • FN: {metrics['False Negatives']} • TN: {metrics['True Negatives']} • Features: {', '.join(metrics['Features'])}")
+            else:
+                st.markdown('<div class="ai-footnote">🔒 <b>Validation locked:</b> Accuracy, Precision and False Alarm Rate become available only after a real NER sensor dataset supplies measured features and both normal (0) and landslide (1) labels.</div>', unsafe_allow_html=True)
+
+        with tabs[2]:
+            st.markdown('<div class="ai-section"><h3>▶ Historical Live-Replay</h3><p>Move through real NER inventory records as though the monitoring feed were arriving sequentially.</p></div>', unsafe_allow_html=True)
+            sim_df = filtered_history.sort_values("timestamp").reset_index(drop=True) if "timestamp" in filtered_history.columns else filtered_history.reset_index(drop=True)
+            if not sim_df.empty:
+                max_step = len(sim_df) - 1
+                sim_step = st.slider("Replay position", 0, max_step, 0, key="simulation_step")
+                sim_row = sim_df.iloc[sim_step]
+                count = int(pd.to_numeric(sim_row.get("landslide_count", 0), errors="coerce") or 0)
+                max_count = max(1, int(pd.to_numeric(sim_df["landslide_count"], errors="coerce").fillna(0).max()))
+                ratio = count / max_count
+                if ratio >= 0.60:
+                    sim_level, sim_icon = "RED / HIGH HISTORICAL ACTIVITY", "🔴"
+                elif ratio >= 0.20:
+                    sim_level, sim_icon = "YELLOW / ELEVATED ACTIVITY", "🟡"
+                else:
+                    sim_level, sim_icon = "GREEN / LOWER INVENTORY ACTIVITY", "🟢"
+                st.markdown(f'<div class="ai-status"><span class="ai-status-dot"></span><b>{sim_icon} {sim_level}</b></div>', unsafe_allow_html=True)
+                a, b, c, d = st.columns(4)
+                a.metric("State", str(sim_row.get("state", "N/A")))
+                b.metric("Year", int(sim_row.get("year", 0)) if pd.notna(sim_row.get("year")) else "N/A")
+                c.metric("Landslide count", f"{count:,}")
+                d.metric("Inventory type", str(sim_row.get("inventory_type", "N/A")))
+                st.progress(min(1.0, ratio), text=f"Historical activity index: {ratio*100:.1f}% of the highest selected record")
+                if "timestamp" in sim_df.columns and pd.notna(sim_row.get("timestamp")):
+                    st.caption(f"Historical record: {pd.to_datetime(sim_row['timestamp']).strftime('%d %b %Y')} • Source: {sim_row.get('data_source', 'NRSC/ISRO')}")
+
+                st.markdown("**Presentation tip:** drag the replay slider from left to right to demonstrate how the historical record changes across states and years.")
+
+        st.markdown('<div class="ai-footnote">📌 <b>Data integrity:</b> Default scope is Northeast India only. The inventory is an event-count dataset, not a continuous sensor stream. Any future sensor-based model should be trained and validated on authoritative, timestamped measurements with verified ground-truth labels.</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="ai-section"><h3>🔗 Official Data Sources</h3><p>Use these references when explaining the data provenance to SIH judges.</p></div>', unsafe_allow_html=True)
+        st.markdown(f"- NRSC/ISRO Landslide Atlas: {NER_INVENTORY_SOURCE_URL}")
+        st.markdown(f"- NRSC/ISRO Landslide Inventory of India (1998–2022): {NER_INVENTORY_PDF_URL}")
+        st.markdown(f"- Geological Survey of India / National Landslide Forecasting Centre: {NER_GSI_SOURCE_URL}")
 
 elif page == "Settings":
     st.markdown('<div class="section-marker settings"></div><div class="section-accent settings"></div>', unsafe_allow_html=True)
